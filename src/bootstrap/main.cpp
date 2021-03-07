@@ -8,6 +8,8 @@
 
 #include <cassert>
 
+#include <stdlib.h>
+
 #include "Logger.h"
 
 HMODULE gameModule;
@@ -22,9 +24,84 @@ HMODULE hkGetModuleHandleA( LPCSTR lpModuleName )
   return GetModuleHandleA( lpModuleName );
 }
 
+HANDLE hkCreateFileW(
+  LPCWSTR lpFileName,
+  DWORD dwDesiredAccess,
+  DWORD dwShareMode,
+  LPSECURITY_ATTRIBUTES lpSecurityAttributes,
+  DWORD dwCreationDisposition,
+  DWORD dwFlagsAndAttributes,
+  HANDLE hTemplateFile
+)
+{
+  char path[MAX_PATH];
+  size_t written = 0;
+  wcstombs_s( &written, path, lpFileName, MAX_PATH );
+
+
+  auto handle = CreateFileW(
+    lpFileName,
+    dwDesiredAccess,
+    dwShareMode,
+    lpSecurityAttributes,
+    dwCreationDisposition,
+    dwFlagsAndAttributes,
+    hTemplateFile
+  );
+
+  if( handle == INVALID_HANDLE_VALUE )
+  {
+    auto err = GetLastError();
+    Logger::debug( "[CreateFileW] INVALID_HANDLE_VALUE, err: {}", err );
+
+    return handle;
+  }
+
+  if( handle )
+  {
+    char fullPath[MAX_PATH];
+    GetFinalPathNameByHandle( handle, fullPath, MAX_PATH, VOLUME_NAME_DOS );
+
+    Logger::debug( "[CreateFileW] {}", fullPath );
+  }
+
+  return handle;
+}
+
+DWORD hkGetModuleFileNameW(
+  HMODULE hModule,
+  LPWSTR  lpFilename,
+  DWORD   nSize
+)
+{
+  if( hModule == NULL )
+  {
+    return GetModuleFileNameW( gameModule, lpFilename, nSize );
+  }
+
+  return GetModuleFileNameW( hModule, lpFilename, nSize );
+}
+
+DWORD hkGetModuleFileNameA(
+  HMODULE hModule,
+  LPSTR   lpFilename,
+  DWORD   nSize
+)
+{
+  if( hModule == NULL )
+  {
+    return GetModuleFileNameA( gameModule, lpFilename, nSize );
+  }
+
+  return GetModuleFileNameA( hModule, lpFilename, nSize );
+}
+
 std::unordered_map< std::string, void* > iatHooks
   {
-    { "KERNEL32.dll`GetModuleHandleA", &hkGetModuleHandleA }
+    { "KERNEL32.dll`GetModuleHandleA",   &hkGetModuleHandleA },
+    { "KERNEL32.dll`CreateFileW",        &hkCreateFileW },
+    { "KERNEL32.dll`GetModuleFileNameW", &hkGetModuleFileNameW },
+    { "KERNEL32.dll`GetModuleFileNameA", &hkGetModuleFileNameA },
   };
 
 void* findIatHook( const std::string& name )
@@ -132,7 +209,8 @@ void fixModule( uint8_t* imageBase )
 #pragma warning(disable: 4477)
 #pragma warning(disable: 4313)
 #pragma warning(disable: 4311)
-          Logger::debug( "[iat] {}.{} -> {:x}", moduleName, reinterpret_cast< uint8_t >( ordinal ), pFirstThunk->u1.Function );
+          Logger::debug( "[iat] {}.{} -> {:x}", moduleName, reinterpret_cast< uint8_t >( ordinal ),
+                         pFirstThunk->u1.Function );
 #pragma warning(pop)
         }
         else
