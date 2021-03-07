@@ -2,12 +2,13 @@
 
 #include <windows.h>
 #include <winternl.h>
-#include <cstdio>
 #include <unordered_map>
 
 #include <string>
 
 #include <cassert>
+
+#include "Logger.h"
 
 HMODULE gameModule;
 
@@ -130,7 +131,8 @@ void fixModule( uint8_t* imageBase )
 #pragma warning(push)
 #pragma warning(disable: 4477)
 #pragma warning(disable: 4313)
-          printf( "[iat] %s.%i -> %llu\n", moduleName, ordinal, pFirstThunk->u1.Function );
+#pragma warning(disable: 4311)
+          Logger::debug( "[iat] {}.{}-> {}", moduleName, reinterpret_cast< uint8_t >( ordinal ), pFirstThunk->u1.Function );
 #pragma warning(pop)
         }
         else
@@ -142,19 +144,18 @@ void fixModule( uint8_t* imageBase )
 
 
           // spaghet
-          char hookName[128];
-          sprintf_s( hookName, 128, "%s`%s", moduleName, pImport->Name );
+          auto hookName = fmt::format( "{}`{}", moduleName, pImport->Name );
 
           auto replacement = findIatHook( hookName );
           if( replacement )
           {
             pFirstThunk->u1.Function = reinterpret_cast<uintptr_t>(replacement);
-            printf( "[iat] (hooked) %s`%s -> %llu\n", moduleName, pImport->Name, pFirstThunk->u1.Function );
+            Logger::info( "[iat] (hooked) {}`{} -> {}", moduleName, pImport->Name, pFirstThunk->u1.Function );
           }
           else
           {
             pFirstThunk->u1.Function = reinterpret_cast<uintptr_t>(fn);
-            printf( "[iat] %s`%s -> %llu\n", moduleName, pImport->Name, pFirstThunk->u1.Function );
+            Logger::debug( "[iat] {}`{} -> {}", moduleName, pImport->Name, pFirstThunk->u1.Function );
           }
         }
 
@@ -188,11 +189,11 @@ void fixModule( uint8_t* imageBase )
   auto teb = NtCurrentTeb();
   auto tlsSection = calc_section_addr( imageBase, ".tls" );
   *( void** ) ( teb->Reserved1[ 11 ] ) = tlsSection;
-  printf( "[teb] section: %p\n", tlsSection );
+  Logger::debug( "[teb] section: {}", tlsSection );
 
   if( !tlsSection )
   {
-    printf( "[teb] teb machine broke\n", tlsSection );
+    Logger::debug( "[teb] teb machine broke" );
     exit( 69420 );
   }
 
@@ -210,12 +211,14 @@ void fixModule( uint8_t* imageBase )
   {
     auto section = IMAGE_FIRST_SECTION( ntHdr ) + i;
 
-    printf( "section: %s\n", section->Name );
+    Logger::debug( "section: {}", section->Name );
   }
 }
 
 int main( int argc, char** argv )
 {
+  Logger::init( "logs" );
+
   //  for( int i = 0; i < argc; ++i )
   //  {
   //    printf( "[%i] %s\n", i, argv[ i ] );
@@ -225,7 +228,7 @@ int main( int argc, char** argv )
 
   if( argc > 1 )
   {
-    printf( "using game folder: %s\n", argv[ 1 ] );
+    Logger::info( "using game folder: {}", argv[ 1 ] );
     gameFolder = argv[ 1 ];
   }
 
@@ -234,20 +237,20 @@ int main( int argc, char** argv )
   auto module = LoadLibrary( gameExecutable.c_str() );
   if( !module )
   {
-    printf( "failed to load ffxiv_dx11.exe\n" );
+    Logger::critical( "failed to load ffxiv_dx11.exe" );
     return 1;
   }
   gameModule = module;
   auto imageBase = reinterpret_cast<uint8_t*>(module);
 
-  printf( "module base: %p\n", module );
+  Logger::debug( "module base: {}", reinterpret_cast< void* >( module ) );
 
   SetCurrentDirectory( gameFolder.c_str() );
 
   auto dosHdr = reinterpret_cast<PIMAGE_DOS_HEADER>(module);
   if( dosHdr->e_magic != IMAGE_DOS_SIGNATURE )
   {
-    printf( "bad magic\n" );
+    Logger::critical( "bad magic" );
     return 1;
   }
 
@@ -257,7 +260,7 @@ int main( int argc, char** argv )
 
   auto entryPoint = reinterpret_cast<CRTStartFn>( getEntryPointAddr( imageBase ) );
 
-  printf( "entrypoint: \t%p\n", entryPoint );
+  Logger::debug( "entrypoint: {}", reinterpret_cast< void* >( entryPoint ) );
 
   entryPoint();
 
