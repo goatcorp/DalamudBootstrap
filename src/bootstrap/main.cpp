@@ -70,8 +70,8 @@ HANDLE hkCreateFileW(
 
 DWORD hkGetModuleFileNameW(
   HMODULE hModule,
-  LPWSTR  lpFilename,
-  DWORD   nSize
+  LPWSTR lpFilename,
+  DWORD nSize
 )
 {
   if( hModule == NULL )
@@ -84,8 +84,8 @@ DWORD hkGetModuleFileNameW(
 
 DWORD hkGetModuleFileNameA(
   HMODULE hModule,
-  LPSTR   lpFilename,
-  DWORD   nSize
+  LPSTR lpFilename,
+  DWORD nSize
 )
 {
   if( hModule == NULL )
@@ -96,12 +96,23 @@ DWORD hkGetModuleFileNameA(
   return GetModuleFileNameA( hModule, lpFilename, nSize );
 }
 
+HANDLE hkOpenProcess(
+  DWORD dwDesiredAccess,
+  BOOL bInheritHandle,
+  DWORD dwProcessId
+)
+{
+  // todo: no idea if this actually breaks anything we care about but lol...
+  return 0;
+}
+
 std::unordered_map< std::string, void* > iatHooks
   {
     { "KERNEL32.dll`GetModuleHandleA",   &hkGetModuleHandleA },
     { "KERNEL32.dll`CreateFileW",        &hkCreateFileW },
     { "KERNEL32.dll`GetModuleFileNameW", &hkGetModuleFileNameW },
     { "KERNEL32.dll`GetModuleFileNameA", &hkGetModuleFileNameA },
+    { "KERNEL32.dll`OpenProcess",        &hkOpenProcess },
   };
 
 void* findIatHook( const std::string& name )
@@ -276,13 +287,13 @@ void fixModule( uint8_t* imageBase )
   }
 
   // this is just a test, don't bash me for shit patching lol
-  auto openprocess = reinterpret_cast<uint8_t*>(imageBase + 0x58102);
-  openprocess[ 0 ] = 0x33;
-  openprocess[ 1 ] = 0xC0;
-  openprocess[ 2 ] = 0x90;
-  openprocess[ 3 ] = 0x90;
-  openprocess[ 4 ] = 0x90;
-  openprocess[ 5 ] = 0x90;
+//  auto openprocess = reinterpret_cast<uint8_t*>(imageBase + 0x58102);
+//  openprocess[ 0 ] = 0x33;
+//  openprocess[ 1 ] = 0xC0;
+//  openprocess[ 2 ] = 0x90;
+//  openprocess[ 3 ] = 0x90;
+//  openprocess[ 4 ] = 0x90;
+//  openprocess[ 5 ] = 0x90;
 
   // todo: fix section protections
   for( int i = 0; i < ntHdr->FileHeader.NumberOfSections; ++i )
