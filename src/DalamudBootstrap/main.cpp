@@ -57,7 +57,7 @@ void* calc_section_addr(uint8_t* imageBase, const char* sectionName)
     for (auto i = 0; i < fileHdr->NumberOfSections; i++)
     {
         auto sectionHdr = reinterpret_cast<PIMAGE_SECTION_HEADER>(
-            ntHdr + sizeof(IMAGE_NT_HEADERS) + i * sizeof(IMAGE_SECTION_HEADER)
+            (uint8_t*)ntHdr + sizeof(IMAGE_NT_HEADERS) + i * sizeof(IMAGE_SECTION_HEADER)
         );
 
         if (!strcmp(sectionName, reinterpret_cast<const char*>(sectionHdr->Name)))
