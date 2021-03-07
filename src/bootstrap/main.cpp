@@ -132,7 +132,7 @@ void fixModule( uint8_t* imageBase )
 #pragma warning(disable: 4477)
 #pragma warning(disable: 4313)
 #pragma warning(disable: 4311)
-          Logger::debug( "[iat] {}.{}-> {}", moduleName, reinterpret_cast< uint8_t >( ordinal ), pFirstThunk->u1.Function );
+          Logger::debug( "[iat] {}.{} -> {:x}", moduleName, reinterpret_cast< uint8_t >( ordinal ), pFirstThunk->u1.Function );
 #pragma warning(pop)
         }
         else
@@ -150,12 +150,12 @@ void fixModule( uint8_t* imageBase )
           if( replacement )
           {
             pFirstThunk->u1.Function = reinterpret_cast<uintptr_t>(replacement);
-            Logger::info( "[iat] (hooked) {}`{} -> {}", moduleName, pImport->Name, pFirstThunk->u1.Function );
+            Logger::info( "[iat] (hooked) {}`{} -> {:x}", moduleName, pImport->Name, pFirstThunk->u1.Function );
           }
           else
           {
             pFirstThunk->u1.Function = reinterpret_cast<uintptr_t>(fn);
-            Logger::debug( "[iat] {}`{} -> {}", moduleName, pImport->Name, pFirstThunk->u1.Function );
+            Logger::debug( "[iat] {}`{} -> {:x}", moduleName, pImport->Name, pFirstThunk->u1.Function );
           }
         }
 
