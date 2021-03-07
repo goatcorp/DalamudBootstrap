@@ -48,6 +48,14 @@ HMODULE findModule( char* moduleName )
   return LoadLibraryA( moduleName );
 }
 
+uint8_t* getEntryPointAddr( uint8_t* imageBase )
+{
+  auto dosHdr = reinterpret_cast<PIMAGE_DOS_HEADER>(imageBase);
+  auto ntHdr = reinterpret_cast<PIMAGE_NT_HEADERS>(imageBase + dosHdr->e_lfanew);
+
+  return imageBase + ntHdr->OptionalHeader.AddressOfEntryPoint;
+}
+
 void* calc_section_addr( uint8_t* imageBase, const char* sectionName )
 {
   auto dosHdr = reinterpret_cast<PIMAGE_DOS_HEADER>(imageBase);
@@ -247,11 +255,11 @@ int main( int argc, char** argv )
 
   using CRTStartFn = uint64_t( * )();
 
-  auto crtStart = reinterpret_cast<CRTStartFn>(imageBase + 0x13725D4);
+  auto entryPoint = reinterpret_cast<CRTStartFn>( getEntryPointAddr( imageBase ) );
 
-  printf( "CRTStart: \t%p\n", crtStart );
+  printf( "entrypoint: \t%p\n", entryPoint );
 
-  crtStart();
+  entryPoint();
 
   return 0;
 }
