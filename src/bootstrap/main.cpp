@@ -1,18 +1,31 @@
+#include <cstdint>
+
+// yolo
+#pragma section(".fuck", read, write, execute)
+const uint32_t shitSize = 1024 * 1024 * 69; // 69ish mb
+__declspec(allocate(".fuck")) uint8_t clientBinary[shitSize];
+#pragma comment(linker, "/merge:.fuck=.text")
+
 #define WIN32_LEAN_AND_MEAN 1
 
 #include <windows.h>
 #include <winternl.h>
+#include <processthreadsapi.h>
+
 #include <unordered_map>
 
 #include <string>
 
 #include <cassert>
 
-#include <stdlib.h>
+#include <cstdlib>
+#include <atomic>
 
 #include "Logger.h"
 
+
 HMODULE gameModule;
+uintptr_t gameTlsSection;
 
 HMODULE hkGetModuleHandleA( LPCSTR lpModuleName )
 {
@@ -68,6 +81,84 @@ HANDLE hkCreateFileW(
   return handle;
 }
 
+typedef struct _THREAD_BASIC_INFORMATION
+{
+  NTSTATUS ExitStatus;
+  PVOID TebBaseAddress;
+  CLIENT_ID ClientId;
+  KAFFINITY AffinityMask;
+  KPRIORITY Priority;
+  KPRIORITY BasePriority;
+} THREAD_BASIC_INFORMATION, * PTHREAD_BASIC_INFORMATION;
+
+HANDLE hkCreateThread(
+  LPSECURITY_ATTRIBUTES lpThreadAttributes,
+  SIZE_T dwStackSize,
+  LPTHREAD_START_ROUTINE lpStartAddress,
+  __drv_aliasesMem LPVOID lpParameter,
+  DWORD dwCreationFlags,
+  LPDWORD lpThreadId
+)
+{
+  auto thread = CreateThread(
+    lpThreadAttributes,
+    dwStackSize,
+    lpStartAddress,
+    lpParameter,
+    dwCreationFlags | CREATE_SUSPENDED,
+    lpThreadId
+  );
+
+  if( thread == NULL )
+  {
+    return thread;
+  }
+
+  using NtQueryInformationThreadFn = int ( * )(
+    IN HANDLE ThreadHandle,
+    IN THREADINFOCLASS ThreadInformationClass,
+    OUT PVOID ThreadInformation,
+    IN ULONG ThreadInformationLength,
+    OUT PULONG ReturnLength OPTIONAL
+  );
+
+  static NtQueryInformationThreadFn queryInformationThread = nullptr;
+  if( queryInformationThread == nullptr )
+  {
+    auto ntdll = GetModuleHandle( "ntdll.dll" );
+    queryInformationThread = reinterpret_cast< NtQueryInformationThreadFn >(
+      GetProcAddress( ntdll, "NtQueryInformationThread" )
+    );
+  }
+
+  static std::atomic< uint32_t > tlsThreadIndex = 0;
+
+  THREAD_BASIC_INFORMATION tbi = { 0 };
+
+  queryInformationThread(
+    thread,
+    static_cast<THREADINFOCLASS>(0),
+    &tbi,
+    sizeof( tbi ),
+    nullptr
+  );
+
+  auto teb = reinterpret_cast< TEB* >( tbi.TebBaseAddress );
+  auto tebAddr = gameTlsSection + ( ++tlsThreadIndex * 0x2000 );
+  teb->Reserved1[ 11 ] = *reinterpret_cast<void**>(&tebAddr);
+
+  Logger::debug(
+    "created thread={:p} _TEB->ThreadLocalStoragePointer={:p} .tls+{:p}",
+    thread,
+    reinterpret_cast< void* >( teb->Reserved1[ 11 ] ),
+    reinterpret_cast< void* >( tebAddr - gameTlsSection )
+  );
+
+  ResumeThread( thread );
+
+  return thread;
+}
+
 DWORD hkGetModuleFileNameW(
   HMODULE hModule,
   LPWSTR lpFilename,
@@ -113,6 +204,7 @@ std::unordered_map< std::string, void* > iatHooks
     { "KERNEL32.dll`GetModuleFileNameW", &hkGetModuleFileNameW },
     { "KERNEL32.dll`GetModuleFileNameA", &hkGetModuleFileNameA },
     { "KERNEL32.dll`OpenProcess",        &hkOpenProcess },
+    { "KERNEL32.dll`CreateThread",       &hkCreateThread },
   };
 
 void* findIatHook( const std::string& name )
@@ -145,7 +237,7 @@ uint8_t* getEntryPointAddr( uint8_t* imageBase )
   return imageBase + ntHdr->OptionalHeader.AddressOfEntryPoint;
 }
 
-void* calc_section_addr( uint8_t* imageBase, const char* sectionName )
+void* getSectionBase( uint8_t* imageBase, const char* sectionName )
 {
   auto dosHdr = reinterpret_cast<PIMAGE_DOS_HEADER>(imageBase);
   auto ntHdr = reinterpret_cast<PIMAGE_NT_HEADERS>(imageBase + dosHdr->e_lfanew);
@@ -216,13 +308,8 @@ void fixModule( uint8_t* imageBase )
           auto fn = GetProcAddress( hModule, ordinal );
           pFirstThunk->u1.Function = reinterpret_cast<uintptr_t>(fn);
 
-#pragma warning(push)
-#pragma warning(disable: 4477)
-#pragma warning(disable: 4313)
-#pragma warning(disable: 4311)
           Logger::debug( "[iat] {}.{} -> {:x}", moduleName, reinterpret_cast< uint8_t >( ordinal ),
                          pFirstThunk->u1.Function );
-#pragma warning(pop)
         }
         else
         {
@@ -256,27 +343,9 @@ void fixModule( uint8_t* imageBase )
     }
   }
 
-  auto tls = optionalHdr->DataDirectory[ IMAGE_DIRECTORY_ENTRY_TLS ];
-  if( tls.Size )
-  {
-    auto pTLS = reinterpret_cast<PIMAGE_TLS_DIRECTORY>(
-      imageBase + tls.VirtualAddress
-    );
-    auto pCallback = reinterpret_cast<PIMAGE_TLS_CALLBACK*>(
-      pTLS->AddressOfCallBacks
-    );
-
-    // todo: not actually sure why but there's a tls section but no entries? wat
-
-    for( ; pCallback && *pCallback; ++pCallback )
-    {
-      // todo: wtf args to use here
-      ( *pCallback )( imageBase, 0, nullptr );
-    }
-  }
-
   auto teb = NtCurrentTeb();
-  auto tlsSection = calc_section_addr( imageBase, ".tls" );
+  auto tlsSection = getSectionBase( imageBase, ".tls" );
+  gameTlsSection = reinterpret_cast< uintptr_t >( tlsSection );
   *( void** ) ( teb->Reserved1[ 11 ] ) = tlsSection;
   Logger::debug( "[teb] section: {}", tlsSection );
 
@@ -285,15 +354,6 @@ void fixModule( uint8_t* imageBase )
     Logger::debug( "[teb] teb machine broke" );
     exit( 69420 );
   }
-
-  // this is just a test, don't bash me for shit patching lol
-//  auto openprocess = reinterpret_cast<uint8_t*>(imageBase + 0x58102);
-//  openprocess[ 0 ] = 0x33;
-//  openprocess[ 1 ] = 0xC0;
-//  openprocess[ 2 ] = 0x90;
-//  openprocess[ 3 ] = 0x90;
-//  openprocess[ 4 ] = 0x90;
-//  openprocess[ 5 ] = 0x90;
 
   // todo: fix section protections
   for( int i = 0; i < ntHdr->FileHeader.NumberOfSections; ++i )

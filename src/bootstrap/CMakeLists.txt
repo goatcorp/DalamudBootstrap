@@ -6,4 +6,4 @@ file(GLOB BOOTSTRAP_SOURCE_FILES
 
 add_executable(DalamudBootstrap ${BOOTSTRAP_HEADER_FILES} ${BOOTSTRAP_SOURCE_FILES})
 
-target_link_libraries(DalamudBootstrap fmt spdlog)
+target_link_libraries(DalamudBootstrap spdlog fmt)
